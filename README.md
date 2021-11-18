@@ -59,7 +59,7 @@ automatic batching
 ```python
 %%timeit -r 1 -n 1
 # vmap approach
-val = batchjax.batch_fn(get_objective, [YP, m_list, m_list], axes=[1, 0, 0])
+val = batchjax.batch_fn(get_objective, [YP, m_list, m_list], axes=[1, 0, 0], , out_dim=2)
 print(val)
 ```
 
