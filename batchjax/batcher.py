@@ -68,7 +68,7 @@ def batch_fn(fn, inputs: list, axes: list):
         bool_arr = input_module_flag
     )
 
-    def _batched(*args):
+    def _batched(fn, input_module_flag, *args):
         # The first half of args refer to modules
         num_args = len(args)
         num_m = int(num_args/2)
@@ -127,7 +127,7 @@ def batch_fn(fn, inputs: list, axes: list):
     
     res =  jax.vmap(
         _batched,
-        in_axes=[*ref_vmap_inputs_axes, *in_axes_dict_list]
-    )(*ref_vmap_inputs, *batched_inputs)
+        in_axes=[None, None, *ref_vmap_inputs_axes, *in_axes_dict_list]
+    )(fn, input_module_flag, *ref_vmap_inputs, *batched_inputs)
     
     return np.array(res).T
