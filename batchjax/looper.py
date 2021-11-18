@@ -6,19 +6,29 @@ from typing import Callable
 
 from . import batch_fn
 
-def index_axis(obj, axis):
-    if axis == 0:
-        return obj[0]
-    elif axis == 1:
-        return obj[:, 1]
+def index_axis(obj, i, a):
+    """
+    Return obj indexed at i on axis a
+    This is done manually to support both lists and numpy arrays
+    """
+    if a == 0:
+        return obj[i]
+    elif a == 1:
+        return obj[:, i]
     else:
         raise NotImplementedError()
 
-def get_input_shape(obj, axis):
-    if axis == 0:
+def get_input_shape(obj, a):
+    """
+    Return the size of axis a
+    If a is zero then both numpy and list objects support len(a)
+
+    if a is one then we assume that obj is an numpy array
+    """
+    if a == 0:
         return len(obj)
-    elif axis == 1:
-        return len(obj[axis])
+    elif a == 1:
+        return obj.shape[a]
     else:
         raise NotImplementedError()
 
@@ -31,7 +41,7 @@ def loop_fn(fn, inputs, axes):
     val_list = []
     for i in range(num_iter):
         inputs_i = [
-            index_axis(inputs[n], axes[n])
+            index_axis(inputs[n], i, axes[n])
             for n in range(num_inputs)
         ]
         val_list.append(
