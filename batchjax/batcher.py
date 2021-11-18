@@ -29,7 +29,7 @@ def get_batched_vars(obj_list):
 def dict_to_int(d, num):
     return {k: num for k,i in d.items()}
 
-def batch_fn(fn, inputs: list, axes: list):
+def batch_fn(fn, inputs: list, axes: list, out_dim: int):
     N = len(inputs)
 
     # helper function to apply different functions to module list or now
@@ -129,5 +129,7 @@ def batch_fn(fn, inputs: list, axes: list):
         _batched,
         in_axes=[None, None, *ref_vmap_inputs_axes, *in_axes_dict_list]
     )(fn, input_module_flag, *ref_vmap_inputs, *batched_inputs)
+
+    res = [np.vstack(res[d]).T for d in range(out_dim)]
     
-    return np.array(res).T
+    return res
