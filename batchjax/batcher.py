@@ -22,12 +22,78 @@ def get_batched_vars(obj_list):
         for key in var_collection.keys():
             all_vars[key] = np.array(all_vars[key])
 
-        #only need to do for the first object as all object should have the same var_collection
-
     return all_vars
 
 def dict_to_int(d, num):
     return {k: num for k,i in d.items()}
+
+
+def _batched(fn, input_module_flag, *args):
+    ml_map = lambda items, is_ml_fn, not_ml_fn, bool_arr: [is_ml_fn(items[i], i) if bool_arr[i] else not_ml_fn(items[i], i) for i in range(len(items))]
+
+
+
+    # The first half of args refer to modules
+    num_args = len(args)
+    num_m = int(num_args/2)
+    
+    # reference modules
+    modules = [args[i] for i in range(num_m)]
+
+    # batched variables
+    batched_vars = [args[i] for i in range(num_m, num_args)]
+
+    # modules is the array of referce variables which have not been batched
+    #  if a module is not a ModuleList we need to replace with the corresonding tensor
+    #  inside batched_vars
+    modules = ml_map(
+        modules,
+        is_ml_fn = lambda x, i: x,
+        not_ml_fn = lambda x, i: batched_vars[i],
+        bool_arr = input_module_flag
+    )
+    
+    original_tensors = ml_map(
+        modules,
+        is_ml_fn = lambda x, i: x.vars().tensors(),
+        not_ml_fn = lambda x, i: x,
+        bool_arr = input_module_flag,
+    )
+
+    # JAX does not ensure that dict will have same order after vmap
+    # So we need re-order the batched varcollections to match that of the corresponding modules
+    # See https://github.com/google/jax/issues/4085
+
+    fix_order = lambda  d, m: {a: d[a] for a in m.vars().keys()}
+
+    new_tensors = ml_map(
+        batched_vars,
+        is_ml_fn = lambda bv, i: [i for k, i in fix_order(bv, modules[i]).items()],
+        not_ml_fn = lambda x, i: x,
+        bool_arr = input_module_flag,
+    )
+    
+    # assign new tensors to modules
+
+    ml_map(
+        modules,
+        is_ml_fn = lambda x, i: x.vars().assign(new_tensors[i]),
+        not_ml_fn = lambda x, i: None,
+        bool_arr = input_module_flag,
+    )        
+    
+    val = fn(*modules)
+    
+    # assign old tensors back
+
+    ml_map(
+        modules,
+        is_ml_fn = lambda x, i: x.vars().assign(original_tensors[i]),
+        not_ml_fn = lambda x, i: None,
+        bool_arr = input_module_flag,
+    )  
+    
+    return val
 
 def batch_fn(fn, inputs: list, axes: list, out_dim: int):
     N = len(inputs)
@@ -68,63 +134,9 @@ def batch_fn(fn, inputs: list, axes: list, out_dim: int):
         bool_arr = input_module_flag
     )
 
-    def _batched(fn, input_module_flag, *args):
-        # The first half of args refer to modules
-        num_args = len(args)
-        num_m = int(num_args/2)
-        
-        # reference modules
-        modules = [args[i] for i in range(num_m)]
 
-        # batched variables
-        batched_vars = [args[i] for i in range(num_m, num_args)]
 
-        # modules is the array of referce variables which have not been batched
-        #  if a module is not a ModuleList we need to replace with the corresonding tensor
-        #  inside batched_vars
-        modules = ml_map(
-            modules,
-            is_ml_fn = lambda x, i: x,
-            not_ml_fn = lambda x, i: batched_vars[i],
-            bool_arr = input_module_flag
-        )
-        
-        original_tensors = ml_map(
-            modules,
-            is_ml_fn = lambda x, i: x.vars().tensors(),
-            not_ml_fn = lambda x, i: x,
-            bool_arr = input_module_flag,
-        )
-
-        new_tensors = ml_map(
-            batched_vars,
-            is_ml_fn = lambda bv, i: [i for k, i in bv.items()],
-            not_ml_fn = lambda x, i: x,
-            bool_arr = input_module_flag,
-        )
-        
-        # assign new tensors to modules
-
-        ml_map(
-            modules,
-            is_ml_fn = lambda x, i: x.vars().assign(new_tensors[i]),
-            not_ml_fn = lambda x, i: None,
-            bool_arr = input_module_flag,
-        )        
-        
-        val = fn(*modules)
-        
-        # assign old tensors back
-
-        ml_map(
-            modules,
-            is_ml_fn = lambda x, i: x.vars().assign(original_tensors[i]),
-            not_ml_fn = lambda x, i: None,
-            bool_arr = input_module_flag,
-        )  
-        
-        return val
-    
+     
     res =  jax.vmap(
         _batched,
         in_axes=[None, None, *ref_vmap_inputs_axes, *in_axes_dict_list]

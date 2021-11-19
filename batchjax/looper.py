@@ -35,7 +35,15 @@ def loop_fn(fn, inputs, axes, dim: int, out_dim:int):
 
         fn_out = fn(*inputs_i)
 
-        val_list = [val_list[d] + [fn_out[d]] for d in range(out_dim)]
+        if out_dim > 1:
+            val_list = [val_list[d] + [fn_out[d]] for d in range(out_dim)]
+        else:
+            val_list = [val_list[0] + [fn_out]]
+
+    if out_dim > 1:
+        val_list = [np.array(val_list[d]) for d in range(out_dim)]
+    else:
+        val_list = np.array(val_list[0])
 
     return val_list
 
