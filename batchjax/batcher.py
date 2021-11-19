@@ -92,7 +92,7 @@ def _batched(fn, input_module_flag, *args):
         not_ml_fn = lambda x, i: None,
         bool_arr = input_module_flag,
     )  
-    
+
     return val
 
 def batch_fn(fn, inputs: list, axes: list, out_dim: int):
@@ -134,14 +134,10 @@ def batch_fn(fn, inputs: list, axes: list, out_dim: int):
         bool_arr = input_module_flag
     )
 
-
-
-     
     res =  jax.vmap(
         _batched,
-        in_axes=[None, None, *ref_vmap_inputs_axes, *in_axes_dict_list]
+        in_axes=[None, None, *ref_vmap_inputs_axes, *in_axes_dict_list],
+        out_axes=0
     )(fn, input_module_flag, *ref_vmap_inputs, *batched_inputs)
-
-    res = [np.vstack(res[d]).T for d in range(out_dim)]
     
     return res
