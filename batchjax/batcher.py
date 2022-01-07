@@ -27,8 +27,21 @@ def get_batched_vars(obj_list):
 def dict_to_int(d, num):
     return {k: num for k,i in d.items()}
 
+def get_objax_iter_index(vc):
+    seen = set()
+    idx = []
+    for i, v in enumerate(vc.values()):
+        if id(v) not in seen:
+            seen.add(id(v))
+            idx.append(i)
+    return idx
+
+def list_index(a, idx):
+    new_a = list(map(a.__getitem__, idx))
+    return new_a
 
 def _batched(fn, input_module_flag, *args):
+
     ml_map = lambda items, is_ml_fn, not_ml_fn, bool_arr: [is_ml_fn(items[i], i) if bool_arr[i] else not_ml_fn(items[i], i) for i in range(len(items))]
 
 
@@ -77,7 +90,12 @@ def _batched(fn, input_module_flag, *args):
 
     ml_map(
         modules,
-        is_ml_fn = lambda x, i: x.vars().assign(new_tensors[i]),
+        is_ml_fn = lambda x, i: x.vars().assign(
+            list_index(
+                new_tensors[i],
+                get_objax_iter_index(x.vars())
+            )
+        ),
         not_ml_fn = lambda x, i: None,
         bool_arr = input_module_flag,
     )        
