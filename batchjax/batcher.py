@@ -2,7 +2,23 @@ import objax
 import jax
 import jax.numpy as np
 import typing
-from typing import Callable
+from typing import Callable, List
+
+def vc_to_dict(vc):
+    """ Convert an objax varcolection to python dict """
+    all_vars = {}
+
+    for key in vc.keys():
+        all_vars[key] =  np.array(vc[key].value)
+
+    return all_vars
+
+def remove_prefix_from_dict_keys(d: dict, prefix: str):
+    """ Assumes that all keys in d start with the same prefix """
+    return {
+        k[len(prefix):]: v 
+        for k, v in d.items()
+    }
 
 def get_batched_vars(obj_list):
     all_vars = {}
@@ -40,11 +56,31 @@ def list_index(a, idx):
     new_a = list(map(a.__getitem__, idx))
     return new_a
 
-def _batched(fn, input_module_flag, *args):
+def bool_map(
+        items: list, true_fn: Callable, false_fn: Callable, bool_arr: List[bool]
+    ) -> list:
+    """ 
+        Iterates over items and applies either true_fn or false_fn depending 
+            on wether bool_arr ir true or false respectiely.
 
-    ml_map = lambda items, is_ml_fn, not_ml_fn, bool_arr: [is_ml_fn(items[i], i) if bool_arr[i] else not_ml_fn(items[i], i) for i in range(len(items))]
+        Both true_fn and false_fn take 2 arguments:
+            item , index
+    """
+    return [
+        true_fn(items[i], i) if bool_arr[i] else false_fn(items[i], i) 
+        for i in range(len(items))
+    ]
 
+class Batched(objax.Module):
+    def __init__(self, mod_list):
+        # use list to hide from objax
+        self.templ_m = [mod_list[0]]
 
+        var_list = get_batched_vars(objax.ModuleList(mod_list))
+        for k, v in var_list.items():
+            setattr(self, k, objax.TrainVar(v))
+
+def _batched_vmap_wrapper(fn, bool_arr, *args):
 
     # The first half of args refer to modules
     num_args = len(args)
@@ -59,18 +95,18 @@ def _batched(fn, input_module_flag, *args):
     # modules is the array of referce variables which have not been batched
     #  if a module is not a ModuleList we need to replace with the corresonding tensor
     #  inside batched_vars
-    modules = ml_map(
+    modules = bool_map(
         modules,
-        is_ml_fn = lambda x, i: x,
-        not_ml_fn = lambda x, i: batched_vars[i],
-        bool_arr = input_module_flag
+        true_fn = lambda x, i: x,
+        false_fn = lambda x, i: batched_vars[i],
+        bool_arr = bool_arr
     )
     
-    original_tensors = ml_map(
+    original_tensors = bool_map(
         modules,
-        is_ml_fn = lambda x, i: x.vars().tensors(),
-        not_ml_fn = lambda x, i: x,
-        bool_arr = input_module_flag,
+        true_fn = lambda x, i: x.vars().tensors(),
+        false_fn = lambda x, i: x,
+        bool_arr = bool_arr,
     )
 
     # JAX does not ensure that dict will have same order after vmap
@@ -79,83 +115,108 @@ def _batched(fn, input_module_flag, *args):
 
     fix_order = lambda  d, m: {a: d[a] for a in m.vars().keys()}
 
-    new_tensors = ml_map(
+    new_tensors = bool_map(
         batched_vars,
-        is_ml_fn = lambda bv, i: [i for k, i in fix_order(bv, modules[i]).items()],
-        not_ml_fn = lambda x, i: x,
-        bool_arr = input_module_flag,
+        true_fn = lambda bv, i: [i for k, i in fix_order(bv, modules[i]).items()],
+        false_fn = lambda x, i: x,
+        bool_arr = bool_arr,
     )
     
     # assign new tensors to modules
 
-    ml_map(
+    bool_map(
         modules,
-        is_ml_fn = lambda x, i: x.vars().assign(
+        true_fn = lambda x, i: x.vars().assign(
             list_index(
                 new_tensors[i],
                 get_objax_iter_index(x.vars())
             )
         ),
-        not_ml_fn = lambda x, i: None,
-        bool_arr = input_module_flag,
+        false_fn = lambda x, i: None,
+        bool_arr = bool_arr,
     )        
     
     val = fn(*modules)
     
     # assign old tensors back
 
-    ml_map(
+    bool_map(
         modules,
-        is_ml_fn = lambda x, i: x.vars().assign(original_tensors[i]),
-        not_ml_fn = lambda x, i: None,
-        bool_arr = input_module_flag,
+        true_fn = lambda x, i: x.vars().assign(original_tensors[i]),
+        false_fn = lambda x, i: None,
+        bool_arr = bool_arr,
     )  
 
     return val
 
-def batch_fn(fn, inputs: list, axes: list, out_dim: int):
+def _batched(fn, inputs, axes, out_dim, bool_arr, module_ref_fn, var_fn):
+
     N = len(inputs)
 
-    # helper function to apply different functions to module list or now
-    ml_map = lambda items, is_ml_fn, not_ml_fn, bool_arr: [is_ml_fn(items[i], i) if bool_arr[i] else not_ml_fn(items[i], i) for i in range(len(items))]
+    
+    # For each Batched obj we need to pass through the objax module that is being matched
 
-    # Figure out which inputs are modulelists
-    input_module_flag = [type(i) == objax.ModuleList for i in inputs]
-
-    # Construct reference inputs to vmap
-    #  if an input is a ModuleList we select the first one as it should make no difference
-    ref_vmap_inputs = ml_map(
+    ref_vmap_inputs = bool_map(
         inputs,
-        is_ml_fn = lambda x, i: x[0],
-        not_ml_fn = lambda x, i: None,
-        bool_arr = input_module_flag
+        true_fn = lambda x, i: module_ref_fn(x),
+        false_fn = lambda x, i: None,
+        bool_arr = bool_arr
     )
 
+    # Do not batch the reference objax.Modules
     ref_vmap_inputs_axes = [None for i in range(N)]
 
 
-    # To vmap across module lists we compute a stacked tree of variables and then
-    #  vmap across this.
-    
-    # Compute the stacked variable tree for each module list in inputs
-    batched_inputs = ml_map(
+    batched_inputs = bool_map(
         inputs,
-        is_ml_fn = lambda x, i: get_batched_vars(x),
-        not_ml_fn = lambda x, i: x,
-        bool_arr = input_module_flag
+        true_fn = lambda x, i: var_fn(x),
+        false_fn = lambda x, i: x,
+        bool_arr = bool_arr
     )
 
-    in_axes_dict_list = ml_map(
+    in_axes_dict_list = bool_map(
         batched_inputs,
-        is_ml_fn = lambda x, i: dict_to_int(x, axes[i]),
-        not_ml_fn = lambda x, i: axes[i],
-        bool_arr = input_module_flag
+        true_fn = lambda x, i: dict_to_int(x, axes[i]),
+        false_fn = lambda x, i: axes[i],
+        bool_arr = bool_arr
     )
 
     res =  jax.vmap(
-        _batched,
+        _batched_vmap_wrapper,
         in_axes=[None, None, *ref_vmap_inputs_axes, *in_axes_dict_list],
         out_axes=0
-    )(fn, input_module_flag, *ref_vmap_inputs, *batched_inputs)
+    )(fn, bool_arr, *ref_vmap_inputs, *batched_inputs)
     
     return res
+
+
+def batch_fn_2(fn, inputs, axes: list, out_dim: int):
+    # For each input we can have either Batched or a jax type
+    # Identify which inputs are of type Batched
+
+    input_batched_flag = [type(i) == Batched for i in inputs]
+
+    return _batched(
+        fn,
+        inputs, 
+        axes, 
+        out_dim, 
+        input_batched_flag, 
+        lambda x: x.templ_m[0],
+        lambda x: remove_prefix_from_dict_keys(vc_to_dict(x.vars()), '(Batched).')
+    )
+
+
+def batch_fn(fn, inputs: list, axes: list, out_dim: int):
+
+    input_batched_flag = [type(i) == objax.ModuleList for i in inputs]
+
+    return _batched(
+        fn,
+        inputs, 
+        axes, 
+        out_dim, 
+        input_batched_flag, 
+        lambda x: x[0],
+        lambda x: get_batched_vars(x)
+    )
