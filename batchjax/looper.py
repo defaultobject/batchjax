@@ -4,8 +4,6 @@ import jax.numpy as np
 import typing
 from typing import Callable
 
-from . import batch_fn
-
 def index_axis(obj, i, a):
     """
     Return obj indexed at i on axis a
@@ -47,9 +45,4 @@ def loop_fn(fn, inputs, axes, dim: int, out_dim:int):
 
     return val_list
 
-def batch_or_loop(fn, inputs: list, axes: list, dim: int, out_dim: int, batch_flag: bool):
-    if batch_flag:
-        return batch_fn(fn, inputs, axes, out_dim)
-    else:
-        return loop_fn(fn, inputs, axes, dim, out_dim)
 

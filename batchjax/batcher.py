@@ -20,6 +20,16 @@ def remove_prefix_from_dict_keys(d: dict, prefix: str):
         for k, v in d.items()
     }
 
+def get_state_var_names(obj_list):
+    sv_names = []
+    for obj in obj_list:
+        var_collection = obj.vars()
+        for key in var_collection.keys():
+            if type(var_collection[key]) != objax.TrainVar:
+                sv_names.append(key)
+
+    return sv_names
+
 def get_batched_vars(obj_list):
     all_vars = {}
 
@@ -72,13 +82,23 @@ def bool_map(
     ]
 
 class Batched(objax.Module):
-    def __init__(self, mod_list):
+    def __init__(self, mod_list: list):
         # use list to hide from objax
         self.templ_m = [mod_list[0]]
 
-        var_list = get_batched_vars(objax.ModuleList(mod_list))
+        mod_list = objax.ModuleList(mod_list)
+
+        # Collect batched versions of all variables across mod_list
+        var_list = get_batched_vars(mod_list)
+
+        # Set each variable as a trainable var so that objax can find them
+
+        sv_names = get_state_var_names(mod_list)
         for k, v in var_list.items():
-            setattr(self, k, objax.TrainVar(v))
+            if k in sv_names:
+                setattr(self, k, objax.StateVar(v))
+            else:
+                setattr(self, k, objax.TrainVar(v))
 
 def _batched_vmap_wrapper(fn, bool_arr, *args):
 
@@ -190,7 +210,7 @@ def _batched(fn, inputs, axes, out_dim, bool_arr, module_ref_fn, var_fn):
     return res
 
 
-def batch_fn_2(fn, inputs, axes: list, out_dim: int):
+def batch_over_batched_list(fn, inputs, axes: list, out_dim: int):
     # For each input we can have either Batched or a jax type
     # Identify which inputs are of type Batched
 
@@ -207,7 +227,7 @@ def batch_fn_2(fn, inputs, axes: list, out_dim: int):
     )
 
 
-def batch_fn(fn, inputs: list, axes: list, out_dim: int):
+def batch_over_objax_list(fn, inputs: list, axes: list, out_dim: int):
 
     input_batched_flag = [type(i) == objax.ModuleList for i in inputs]
 
