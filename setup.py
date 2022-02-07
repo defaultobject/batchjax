@@ -8,7 +8,7 @@ setuptools.setup(
     description="Add support for Jax and OBJAX to automatically batch over lists and ModuleLists",
     long_description="",
     long_description_content_type="text/markdown",
-    url="N/A",
+    url="https://github.com/defaultobject/batchjax",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
