@@ -5,7 +5,8 @@ from .batcher import batch_over_batched_list, batch_over_objax_list
 
 
 class BatchType(Enum):
-    """ Enum to specify which type of batching should be used. """
+    """Enum to specify which type of batching should be used."""
+
     LOOP = 0
     BATCHED = 1
     OBJAX = 2
