@@ -12,4 +12,4 @@ pip install batchjax
 
 ## Example
 
-tbd.
+See `batchjax_example.ipynb`.
