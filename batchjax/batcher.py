@@ -1,12 +1,17 @@
+"""
+Batching using jax.vmap
+ 
+To support batching across objax objects we essentially unpack the object into a dictionary (var collection)
+    and then stack these in a way that supports vmap, and then repack them.
+"""
+from typing import Callable, List
 import objax
 import jax
 import jax.numpy as np
-import typing
-from typing import Callable, List
 
 
 def vc_to_dict(vc):
-    """Convert an objax varcolection to python dict"""
+    """Convert an objax var colection to python dict"""
     all_vars = {}
 
     for key in vc.keys():
@@ -21,6 +26,7 @@ def remove_prefix_from_dict_keys(d: dict, prefix: str):
 
 
 def get_state_var_names(obj_list):
+    """Get names of all state variables."""
     sv_names = []
     for obj in obj_list:
         var_collection = obj.vars()
@@ -32,6 +38,13 @@ def get_state_var_names(obj_list):
 
 
 def get_batched_vars(obj_list):
+    """
+    Stack all object var collections. We assume that each obj in obj_list is from the same class.
+
+    For each obj in obj_list we retrieve its var collection, which is a dictionary of parameters.
+    These are stacked into a new dictionary with the same keys, however the values are
+        an array across all the values.
+    """
     all_vars = {}
 
     # collect vars
@@ -53,10 +66,12 @@ def get_batched_vars(obj_list):
 
 
 def dict_to_int(d, num):
+    """Creates a new dict with same keys as d but values num"""
     return {k: num for k, i in d.items()}
 
 
 def get_objax_iter_index(vc):
+    """Mimics the way objax iterates over variables and returns the index in the same order."""
     seen = set()
     idx = []
     for i, v in enumerate(vc.values()):
@@ -67,6 +82,12 @@ def get_objax_iter_index(vc):
 
 
 def list_index(a, idx):
+    """
+    For each element a this indexes it with the corresponding index in idx.
+    Args:
+        a: array of elements to index
+        idx: array of the same length of a with the corresponding indexes
+    """
     new_a = list(map(a.__getitem__, idx))
     return new_a
 
@@ -76,7 +97,7 @@ def bool_map(
 ) -> list:
     """
     Iterates over items and applies either true_fn or false_fn depending
-        on wether bool_arr ir true or false respectiely.
+        on whether bool_arr ir true or false respectiely.
 
     Both true_fn and false_fn take 2 arguments:
         item , index
@@ -108,15 +129,25 @@ class Batched(objax.Module):
 
 
 def _batched_vmap_wrapper(fn, bool_arr, *args):
+    """
+    A wrapper around fn that unpacks the jax.vmap arguments reorganises them so then can be passed to fn.
+
+    Args:
+        fn: original function passed by the user to be batched
+        bool_arr: a list that indicates which input is an objax array
+        args: an array of inputs that have been batched.
+            The first half are the objax objects that have been batched.
+            The second half refer to the batched variables.
+    """
 
     # The first half of args refer to modules
     num_args = len(args)
     num_m = int(num_args / 2)
 
-    # reference modules
+    # collect the reference modules
     modules = [args[i] for i in range(num_m)]
 
-    # batched variables
+    # collect the batched variables
     batched_vars = [args[i] for i in range(num_m, num_args)]
 
     # modules is the array of referce variables which have not been batched
@@ -175,11 +206,29 @@ def _batched_vmap_wrapper(fn, bool_arr, *args):
 
 
 def _batched(fn, inputs, axes, out_dim, bool_arr, module_ref_fn, var_fn):
+    """
+    This is the function where the batching is done.
+
+    Args:
+        fn: callable function to batch/loop over
+        inputs: inputs to be passed to fn_to_batch
+        axes: corresponding axis for each input to batch/loop over
+        out_dim: the number of arguments to returned by fn_to_batch
+        bool_arr: a boolean list corresponding to each input indicating whether is is an objax object
+        module_ref_fn: a function that retrieves the underlying objax object.
+            This is required to make this function more general than just passing through the raw objax variables
+        var_fn: for an objax object return its variables
+
+    To implement the batching we:
+        1) For input corresponding to an objax input extract the base objax object
+        2) For each objax input collect its stacked variables
+        3) Organise inputs to _batched_vmap_wrapper so that it can be called with jax.vmap
+    """
 
     N = len(inputs)
 
+    # Step 1
     # For each Batched obj we need to pass through the objax module that is being matched
-
     ref_vmap_inputs = bool_map(
         inputs,
         true_fn=lambda x, i: module_ref_fn(x),
@@ -190,6 +239,7 @@ def _batched(fn, inputs, axes, out_dim, bool_arr, module_ref_fn, var_fn):
     # Do not batch the reference objax.Modules
     ref_vmap_inputs_axes = [None for i in range(N)]
 
+    # Step 2
     batched_inputs = bool_map(
         inputs,
         true_fn=lambda x, i: var_fn(x),
@@ -197,6 +247,7 @@ def _batched(fn, inputs, axes, out_dim, bool_arr, module_ref_fn, var_fn):
         bool_arr=bool_arr,
     )
 
+    # Step 3
     in_axes_dict_list = bool_map(
         batched_inputs,
         true_fn=lambda x, i: dict_to_int(x, axes[i]),
@@ -214,7 +265,7 @@ def _batched(fn, inputs, axes, out_dim, bool_arr, module_ref_fn, var_fn):
 
 
 def batch_over_batched_list(fn, inputs, axes: list, out_dim: int):
-    # For each input we can have either Batched or a jax type
+    """TODO: check if this is still needed"""
     # Identify which inputs are of type Batched
 
     input_batched_flag = [type(i) == Batched for i in inputs]
@@ -231,6 +282,7 @@ def batch_over_batched_list(fn, inputs, axes: list, out_dim: int):
 
 
 def batch_over_objax_list(fn, inputs: list, axes: list, out_dim: int):
+    """Entry point for batching over a list of inputs that can contain objax objects."""
 
     input_batched_flag = [type(i) == objax.ModuleList for i in inputs]
 
