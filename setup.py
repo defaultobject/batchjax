@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="BatchJAX", 
-    version="0.0.1",
+    version="0.1.0",
     author="O Hamelijnck",
     author_email="ohamelijnck@turing.ac.uk",
     description="Add support for Jax and OBJAX to automatically batch over lists and ModuleLists",
