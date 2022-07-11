@@ -1,3 +1,4 @@
+"""Module for adding vmap type support across objax objects"""
 from .batcher import (
     get_batched_vars,
     batch_over_batched_list,
