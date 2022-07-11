@@ -1,5 +1,9 @@
 """
 Batching using jax.vmap
+
+We support two modes: 
+    1) Automatic batching across objax objects.
+    2) Objects have already been batched through Batched
  
 To support batching across objax objects we essentially unpack the object into a dictionary (var collection)
     and then stack these in a way that supports vmap, and then repack them.
@@ -108,24 +112,6 @@ def bool_map(
     ]
 
 
-class Batched(objax.Module):
-    def __init__(self, mod_list: list):
-        # use list to hide from objax
-        self.templ_m = [mod_list[0]]
-
-        mod_list = objax.ModuleList(mod_list)
-
-        # Collect batched versions of all variables across mod_list
-        var_list = get_batched_vars(mod_list)
-
-        # Set each variable as a trainable var so that objax can find them
-
-        sv_names = get_state_var_names(mod_list)
-        for k, v in var_list.items():
-            if k in sv_names:
-                setattr(self, k, objax.StateVar(v))
-            else:
-                setattr(self, k, objax.TrainVar(v))
 
 
 def _batched_vmap_wrapper(fn, bool_arr, *args):
@@ -264,8 +250,53 @@ def _batched(fn, inputs, axes, out_dim, bool_arr, module_ref_fn, var_fn):
     return res
 
 
+# Objax mode
+def batch_over_objax_list(fn, inputs: list, axes: list, out_dim: int):
+    """Entry point for batching over a list of inputs that can contain objax objects."""
+
+    input_batched_flag = [type(i) == objax.ModuleList for i in inputs]
+
+    return _batched(
+        fn,
+        inputs,
+        axes,
+        out_dim,
+        input_batched_flag,
+        lambda x: x[0],
+        lambda x: get_batched_vars(x),
+    )
+    
+
+# Explict Batched objects mode
+class Batched(objax.Module):
+    """ 
+    Turns an array of objax modules / modulelist into a single object with batch parameters. 
+    This is faster than objax mode (as no iterating over objects are required when batching and jax can 
+        handle everything.) HOWEVER this does change the way variables are stored and so should be used
+        cautiously
+    """
+    def __init__(self, mod_list: list):
+        # use list to hide from objax
+        self.templ_m = [mod_list[0]]
+
+        mod_list = objax.ModuleList(mod_list)
+
+        # Collect batched versions of all variables across mod_list
+        var_list = get_batched_vars(mod_list)
+
+        # Set each variable as a trainable var so that objax can find them
+
+        sv_names = get_state_var_names(mod_list)
+        for k, v in var_list.items():
+            if k in sv_names:
+                setattr(self, k, objax.StateVar(v))
+            else:
+                setattr(self, k, objax.TrainVar(v))
+
+
 def batch_over_batched_list(fn, inputs, axes: list, out_dim: int):
-    """TODO: check if this is still needed"""
+    """Entry point for batching over a list of inputs that can contain explicted batched objects."""
+
     # Identify which inputs are of type Batched
 
     input_batched_flag = [type(i) == Batched for i in inputs]
@@ -281,17 +312,3 @@ def batch_over_batched_list(fn, inputs, axes: list, out_dim: int):
     )
 
 
-def batch_over_objax_list(fn, inputs: list, axes: list, out_dim: int):
-    """Entry point for batching over a list of inputs that can contain objax objects."""
-
-    input_batched_flag = [type(i) == objax.ModuleList for i in inputs]
-
-    return _batched(
-        fn,
-        inputs,
-        axes,
-        out_dim,
-        input_batched_flag,
-        lambda x: x[0],
-        lambda x: get_batched_vars(x),
-    )
