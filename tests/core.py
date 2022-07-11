@@ -37,6 +37,20 @@ class _NNList(objax.Module):
 
 @pytest.mark.parametrize('N', [100])
 @pytest.mark.parametrize('num_models', [10])
+def test__batch_or_loop__loop_vs_explicit(neural_network_list):
+    # Setup
+    m_loop = _NNList(neural_network_list, batchjax.BatchType.LOOP)
+
+    # Run
+
+    truth_val = onp.sum([nn.objective() for nn in neural_network_list])
+    loop_val = m_loop.objective()
+
+    # Assert
+    onp.testing.assert_allclose(truth_val, loop_val)
+
+@pytest.mark.parametrize('N', [100])
+@pytest.mark.parametrize('num_models', [10])
 def test__batch_or_loop__loop_vs_objax(neural_network_list):
     # Setup
 
