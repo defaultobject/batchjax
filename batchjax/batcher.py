@@ -112,8 +112,6 @@ def bool_map(
     ]
 
 
-
-
 def _batched_vmap_wrapper(fn, bool_arr, *args):
     """
     A wrapper around fn that unpacks the jax.vmap arguments reorganises them so then can be passed to fn.
@@ -265,16 +263,17 @@ def batch_over_objax_list(fn, inputs: list, axes: list, out_dim: int):
         lambda x: x[0],
         lambda x: get_batched_vars(x),
     )
-    
+
 
 # Explict Batched objects mode
 class Batched(objax.Module):
-    """ 
-    Turns an array of objax modules / modulelist into a single object with batch parameters. 
-    This is faster than objax mode (as no iterating over objects are required when batching and jax can 
+    """
+    Turns an array of objax modules / modulelist into a single object with batch parameters.
+    This is faster than objax mode (as no iterating over objects are required when batching and jax can
         handle everything.) HOWEVER this does change the way variables are stored and so should be used
         cautiously
     """
+
     def __init__(self, mod_list: list):
         # use list to hide from objax
         self.templ_m = [mod_list[0]]
@@ -310,5 +309,3 @@ def batch_over_batched_list(fn, inputs, axes: list, out_dim: int):
         lambda x: x.templ_m[0],
         lambda x: remove_prefix_from_dict_keys(vc_to_dict(x.vars()), "(Batched)."),
     )
-
-
