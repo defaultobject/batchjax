@@ -26,6 +26,11 @@ def batch_or_loop(
         out_dim: the number of arguments to returned by fn_to_batch
         batch_type: enum to specify whether native python loops or batching should be used.
     """
+    if len(axes) != len(inputs):
+        raise RuntimeError(
+            f'There are {len(inputs)} inputs passed but only {len(axes)} axes passed!'
+        )
+
     if batch_type == BatchType.LOOP:
         return loop_fn(fn_to_batch, inputs, axes, dim, out_dim)
 
