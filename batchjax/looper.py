@@ -23,7 +23,7 @@ def index_axis(obj, i, axis):
     if axis == 1:
         return obj[:, i]
 
-    raise NotImplementedError()
+    raise NotImplementedError(f'Indexing for axis {axis} at {i} is not supported')
 
 
 def loop_fn(fn_to_batch: Callable, inputs, axes, dim: int, out_dim: int):
