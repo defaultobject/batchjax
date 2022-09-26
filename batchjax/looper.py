@@ -23,6 +23,9 @@ def index_axis(obj, i, axis):
     if axis == 1:
         return obj[:, i]
 
+    if axis == 2:
+        return obj[:, :, i]
+
     raise NotImplementedError(f'Indexing for axis {axis} at {i} is not supported')
 
 
