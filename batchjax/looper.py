@@ -50,8 +50,10 @@ def loop_fn(fn_to_batch: Callable, inputs, axes, dim: int, out_dim: int):
             val_list = [val_list[0] + [fn_out]]
 
     if out_dim > 1:
-        val_list = [np.array(val_list[d]) for d in range(out_dim)]
+        #val_list = [np.array(val_list[d]) for d in range(out_dim)]
+        val_list = [val_list[d] for d in range(out_dim)]
     else:
-        val_list = np.array(val_list[0])
+        #val_list = np.array(val_list[0])
+        val_list = val_list[0]
 
     return val_list
